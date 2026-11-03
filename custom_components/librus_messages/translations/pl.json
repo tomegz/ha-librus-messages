@@ -1,0 +1,88 @@
+{
+  "title": "Librus Messages",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Połącz wiadomości Librus",
+        "description": "Użyj loginu Synergia dla wiadomosci.librus.pl. Nie trzeba kopiować ciasteczek. Wiadomości historyczne nie wywołają powiadomień.",
+        "data": {
+          "name": "Nazwa konta",
+          "username": "Login Synergia",
+          "password": "Hasło"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Zaloguj się ponownie do Librusa",
+        "description": "Wpisz hasło do tego konta. Historia przetworzonych wiadomości zostanie zachowana.",
+        "data": {
+          "password": "Hasło"
+        }
+      },
+      "reconfigure": {
+        "title": "Zmień hasło Librusa",
+        "description": "Zmień hasło bez resetowania historii przetworzonych wiadomości.",
+        "data": {
+          "password": "Hasło"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Librus odrzucił dane logowania lub wymaga dodatkowej weryfikacji. Sprawdź dane konta Synergia.",
+      "cannot_connect": "Nie udało się pobrać skrzynki wiadomości. Sprawdź połączenie i spróbuj ponownie. Konto musi korzystać z nowego modułu wiadomości."
+    },
+    "abort": {
+      "already_configured": "To konto jest już skonfigurowane.",
+      "reauth_successful": "Zaktualizowano dane logowania.",
+      "reconfigure_successful": "Zaktualizowano hasło."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje odświeżania",
+        "data": {
+          "poll_interval": "Odstęp odświeżania (minuty, 1–60)"
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "Wpisz całkowitą liczbę minut od 1 do 60."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "unread_messages": {
+        "name": "Nieprzeczytane wiadomości"
+      },
+      "latest_message": {
+        "name": "Najnowsza wiadomość"
+      },
+      "last_successful_sync": {
+        "name": "Ostatnia udana synchronizacja"
+      }
+    },
+    "event": {
+      "new_message": {
+        "name": "Nowa wiadomość",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_message": "Nowa wiadomość"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Odśwież"
+      }
+    }
+  },
+  "issues": {
+    "tracking_reset": {
+      "title": "Zresetowano śledzenie wiadomości Librus",
+      "description": "Zapisana historia wiadomości zniknęła lub była uszkodzona. Automatycznie zapisano nowy stan początkowy. Wiadomości obecne w skrzynce podczas resetu nie wywołały zdarzeń. Kolejne wiadomości będą wykrywane normalnie. Nie musisz nic robić."
+    }
+  }
+}

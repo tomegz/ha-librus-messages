@@ -1,0 +1,88 @@
+{
+  "title": "Librus Messages",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Librus Messages",
+        "description": "Use your Synergia login for wiadomosci.librus.pl. No browser cookies are needed. Historical messages will not be announced.",
+        "data": {
+          "name": "Account label",
+          "username": "Synergia login",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to Librus again",
+        "description": "Enter the password for this account. Message tracking will be preserved.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Update Librus password",
+        "description": "Update the password for this account without resetting message tracking.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Librus rejected the login or requires interactive verification. Check your Synergia credentials.",
+      "cannot_connect": "Could not fetch the messages inbox. Check connectivity and try again. The account must use the new messages application."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Authentication updated.",
+      "reconfigure_successful": "Password updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling options",
+        "data": {
+          "poll_interval": "Polling interval (minutes, 1–60)"
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "Enter a whole number of minutes from 1 to 60."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "unread_messages": {
+        "name": "Unread messages"
+      },
+      "latest_message": {
+        "name": "Latest message"
+      },
+      "last_successful_sync": {
+        "name": "Last successful sync"
+      }
+    },
+    "event": {
+      "new_message": {
+        "name": "New message",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_message": "New message"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      }
+    }
+  },
+  "issues": {
+    "tracking_reset": {
+      "title": "Librus message tracking was reset",
+      "description": "Saved message tracking was missing or corrupt. A fresh baseline was saved automatically. Messages already in the inbox at the reset were not announced. Future messages will generate events normally. No action is required."
+    }
+  }
+}
