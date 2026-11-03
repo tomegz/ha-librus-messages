@@ -11,7 +11,11 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    HomeAssistantError,
+    ServiceValidationError,
+)
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -68,6 +72,44 @@ class LibrusCoordinator(DataUpdateCoordinator[Inbox]):
         self._recovering = False
         self._lock = asyncio.Lock()
         self._rate_limit_until = 0.0
+        self.body_message_id: str | None = None
+        self.body: str | None = None
+
+    async def async_read_latest_message(self) -> None:
+        """Read the current latest message only after an explicit button press."""
+        async with self._lock:
+            if not self.last_update_success or not self.data or not self.data.latest:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN, translation_key="no_latest_message"
+                )
+            message_id = self.data.latest.message_id
+            if self.body_message_id == message_id:
+                return
+            if self.hass.loop.time() < self._rate_limit_until:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="read_rate_limited"
+                )
+            try:
+                body = await self.client.read_message(message_id)
+            except AuthError:
+                self.entry.async_start_reauth(self.hass)
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="read_auth_failed"
+                ) from None
+            except RateLimited as err:
+                self._rate_limit_until = self.hass.loop.time() + err.retry_after
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="read_rate_limited"
+                ) from None
+            except ApiError:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="read_failed"
+                ) from None
+            self.body_message_id = message_id
+            self.body = body
+        self.async_update_listeners()
+        # The detail response can still say unread. Ask the inbox for the truth.
+        await self.async_request_refresh()
 
     async def _async_setup(self) -> None:
         try:
@@ -153,4 +195,8 @@ class LibrusCoordinator(DataUpdateCoordinator[Inbox]):
                 # Before event platform/HA startup is ready, leave unseen IDs unseen.
                 await self._save(self.seen, now)
             self.last_sync = now
+            latest = inbox.latest
+            if latest is None or latest.message_id != self.body_message_id:
+                self.body_message_id = None
+                self.body = None
             return inbox

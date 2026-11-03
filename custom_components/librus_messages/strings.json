@@ -76,6 +76,9 @@
     "button": {
       "refresh": {
         "name": "Refresh"
+      },
+      "read_latest_message": {
+        "name": "Read latest message"
       }
     }
   },
@@ -83,6 +86,20 @@
     "tracking_reset": {
       "title": "Librus message tracking was reset",
       "description": "Saved message tracking was missing or corrupt. A fresh baseline was saved automatically. Messages already in the inbox at the reset were not announced. Future messages will generate events normally. No action is required."
+    }
+  },
+  "exceptions": {
+    "no_latest_message": {
+      "message": "No current message is available to read. Refresh the inbox and try again."
+    },
+    "read_rate_limited": {
+      "message": "Librus has limited requests. Wait before trying again."
+    },
+    "read_auth_failed": {
+      "message": "Sign in to Librus Synergia again in the integration settings."
+    },
+    "read_failed": {
+      "message": "Could not fetch the content. The message may already have been marked as read in Librus Synergia."
     }
   }
 }

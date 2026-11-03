@@ -42,6 +42,7 @@ def entry(hass):
 def client():
     value = Mock()
     value.fetch_inbox = AsyncMock(return_value=Inbox((message(),), 1))
+    value.read_message = AsyncMock(return_value="Pełna treść\nDrugi wiersz")
     with (
         patch("custom_components.librus_messages.create_client", return_value=value),
         patch("custom_components.librus_messages.config_flow.create_client", return_value=value),

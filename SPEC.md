@@ -1,6 +1,6 @@
-# Librus Messages — v1 specification
+# Librus Messages — specification
 
-Status: implemented for v0.1.0. Updated 2026-11-03.
+Status: v0.2.0 adds explicit latest-message reading. Updated 2026-11-03.
 
 Repository: `tomegz/ha-librus-messages`
 
@@ -10,13 +10,14 @@ Home Assistant domain: `librus_messages`
 
 Provide a small Home Assistant integration for the Librus Synergia messages
 application at `wiadomosci.librus.pl`. Users receive preview notifications through
-their own automations and open messages in Librus to read them.
+their own automations and read the latest message in HA on demand. Older messages
+are read in Librus.
 
 Target the current stable Home Assistant release at implementation time. There
 is no requirement to support older releases. Support installation and updates
 through HACS as a public custom repository, with UI configuration and no SSH.
 
-V1 excludes full-content fetching, attachments, sending messages, a custom inbox
+The integration excludes background full-content fetching, attachments, sending messages, a custom inbox
 UI, and separate acknowledgement tracking. It does not implement the older
 Synergia messages interface or other school modules.
 
@@ -36,8 +37,8 @@ Synergia messages interface or other school modules.
 ## Fetching
 
 - Poll the inbox list and unread-count endpoints at a configurable interval.
-- Fetch metadata and previews only. Never call the message-detail endpoint or
-  mark messages read automatically.
+- Poll metadata and previews only. Never call the message-detail endpoint or
+  mark messages read automatically during polling, refresh or notifications.
 - Scheduled polling and the refresh button use the same fetching, authentication,
   pagination and detection logic.
 - Fetch the complete inbox, including pagination. Do not assume a single page or
@@ -62,6 +63,7 @@ Entity IDs below are examples; HA may add account-specific suffixes.
 | `sensor.librus_latest_message` | Timestamp of the newest message currently in the inbox; attributes include message ID, sender, subject, preview, URL and read status. |
 | `event.librus_new_message` | One occurrence per newly discovered message, carrying ID, sender, subject, sent timestamp, preview and URL. The event entity state is the occurrence time; the message's sent time is payload data. |
 | `button.librus_refresh` | Request a refresh using the normal synchronization logic. |
+| `button.librus_read_latest_message` | Explicitly fetch the latest message's full body, which marks that message read in Librus. |
 | `sensor.librus_last_successful_sync` | Diagnostic timestamp of the last successful refresh, retained through failures and restarts. |
 
 The latest-message entity represents the current inbox, not a retained snapshot
@@ -69,6 +71,25 @@ of the last message ever received. If the newest message is archived or deleted,
 the entity changes to the next newest message still in the inbox. An empty inbox
 gives an unknown latest-message timestamp with no message payload attributes;
 the unread sensor can legitimately report zero after a successful fetch.
+
+## Explicit latest-message reading
+
+- A clearly described Read latest message button is the user's request to fetch
+  full content and mark the message read. No background prefetch or consent modes.
+- Reuse the account's existing session and recovery logic. Validate the message
+  ID, decode base64/XML and expose the content as text in a `body` attribute.
+- Keep only the current latest body in memory, keyed by message ID. Repeated
+  presses reuse it. Clear it on latest-message changes, reloads and restarts.
+- Fetch the unread count and read status from the inbox after reading; never
+  assume the count fell by one or trust the detail response's stale read date.
+- An unavailable or empty inbox cannot be read via this button. Read failures
+  must not fabricate content or counts, and may already have marked the message read.
+- Exclude `body` from Recorder and Store; never add it to new-message events.
+- The dashboard displays escaped full text after reading, otherwise a preview
+  and a visible explanation of the read-status side effect.
+- A newer message can replace the latest while a notification waits on a phone.
+  HA notification actions must say they show the latest message, and preserve a
+  separate original-message Librus link.
 
 ## Tracking and event semantics
 
@@ -105,8 +126,8 @@ the unread sensor can legitimately report zero after a successful fetch.
 ## Notifications and history
 
 Notification delivery belongs to user automations. Provide an example using
-subject, sender, preview and URL, with a notification tap opening the message in
-Librus. The example must handle several occurrences in one polling cycle and
+subject, sender and preview, with a notification tap opening the reader dashboard
+in HA without fetching content. The example must handle several occurrences in one polling cycle and
 avoid interpreting entity restoration or availability changes as new messages.
 
 Recipients, quiet hours, wording and an optional Open in Librus action are user
@@ -125,7 +146,7 @@ These defaults fill in routine implementation details within the agreed scope:
 - Serialize refreshes per account and coalesce overlapping requests.
 - Announce a batch in chronological order, oldest first.
 - Keep seen IDs for the lifetime of the config entry, including IDs of messages
-  subsequently removed from the inbox; do not retain whole message bodies.
+  subsequently removed from the inbox; do not persist whole message bodies.
 - Remove integration-owned tracking when the account entry is deleted.
 - Keep tracking when the password is updated for the same account.
 - Do not publish catch-up events during initial HA startup before automations

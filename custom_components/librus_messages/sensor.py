@@ -44,7 +44,12 @@ class LatestSensor(LibrusEntity, SensorEntity):
     def extra_state_attributes(self):
         # Do not expose stale school data on an unavailable entity.
         message = self.coordinator.data.latest if self.available else None
-        return message.attributes() if message else {}
+        if message is None:
+            return {}
+        attributes = message.attributes()
+        if self.coordinator.body_message_id == message.message_id:
+            attributes["body"] = self.coordinator.body
+        return attributes
 
 
 class LastSyncSensor(LibrusEntity, SensorEntity):

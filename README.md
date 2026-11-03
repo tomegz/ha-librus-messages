@@ -3,10 +3,11 @@
 A small, unofficial integration for the new Librus Synergia messages application
 at [wiadomosci.librus.pl](https://wiadomosci.librus.pl/nowy/inbox).
 
-Get preview notifications using your own Home Assistant automations, then open
-Librus to read the message. Polling **does not mark messages read**: this
-integration only requests the inbox list and unread count. It never requests
-full message content, attachments, or sends messages.
+Get preview notifications using your own Home Assistant automations, then read
+the latest message in HA by pressing **Read latest message**. This explicit
+action fetches full content and **marks that message as read in Librus**.
+Polling, refresh and notifications still fetch metadata only and do not mark
+messages read. Use Librus for older messages and attachments; sending is not supported.
 
 Requires **Home Assistant 2026.10.4 or newer**. Tested against 2026.10.4; future
 HA and Librus changes may require integration updates. This project is not
@@ -56,8 +57,9 @@ With the default account label `Librus`, example entity IDs are:
 | Entity | Meaning |
 | --- | --- |
 | `sensor.librus_unread_messages` | Unread count from Librus. |
-| `sensor.librus_latest_message` | Newest message currently in the inbox: sent timestamp, with `message_id`, `sender`, `subject`, `preview`, `sent_at`, `url`, and `read` attributes. |
-| `event.librus_new_message` | One occurrence per newly discovered message, including messages already read elsewhere. Event type: `new_message`. Payload uses the same attributes as the latest-message sensor. |
+| `sensor.librus_latest_message` | Newest message currently in the inbox: sent timestamp, with `message_id`, `sender`, `subject`, `preview`, `sent_at`, `url`, and `read` attributes. Adds `body` only after explicitly reading it. |
+| `event.librus_new_message` | One occurrence per newly discovered message, including messages already read elsewhere. Event type: `new_message`. Payload includes metadata and preview, never full content. |
+| `button.librus_read_latest_message` | Fetch the latest message's full content and mark it read in Librus. |
 | `button.librus_refresh` | Request an immediate refresh through the same coordinator as scheduled polling. |
 | `sensor.librus_last_successful_sync` | Last successful refresh, retained through errors and restarts. |
 
@@ -78,6 +80,7 @@ Check the integration's device page before copying an automation.
 In **Settings → Automations & scenes**, create a new empty automation, open its
 menu and choose **Edit in YAML**. Paste the example below, then replace the event
 entity and `notify.mobile_app_your_phone` with your own values.
+Replace `/lovelace/0` with the path to the dashboard containing your reader card.
 
 ```yaml
 alias: Librus - new message
@@ -99,24 +102,29 @@ actions:
   - action: notify.mobile_app_your_phone
     data:
       title: "{{ trigger.to_state.attributes.subject }}"
-      message: >-
-        {{ trigger.to_state.attributes.sender }}:
-        {{ trigger.to_state.attributes.preview }}
+      message: |-
+        {{ trigger.to_state.attributes.sender }}
+        {% set preview = trigger.to_state.attributes.get('preview', '') | default('', true) | trim %}{{ (preview.rstrip('.…') ~ '...') if preview else '' }}
       data:
         tag: "{{ trigger.entity_id }}_{{ trigger.to_state.attributes.message_id }}"
-        url: "{{ trigger.to_state.attributes.url }}"
-        clickAction: "{{ trigger.to_state.attributes.url }}"
+        url: /lovelace/0
+        clickAction: /lovelace/0
         actions:
           - action: URI
-            title: Open in Librus
+            title: Show latest message in HA
+            uri: /lovelace/0
+          - action: URI
+            title: Open original in Librus
             uri: "{{ trigger.to_state.attributes.url }}"
 mode: queued
 max: 100
 ```
 
-`url` supports an iOS notification tap and `clickAction` supports Android. The
-optional action opens the same message link. Your browser may ask you to log in.
-The message becomes read when **you open it in Librus**.
+`url` supports an iOS notification tap and `clickAction` supports Android. They
+open HA without fetching full content. Even an older notification opens the
+**current latest message** in HA; the secondary Librus action targets the original
+message. If the Librus browser session expired, [sign in to Synergia](https://portal.librus.pl/rodzina/synergia/loguj)
+and open its Messages module before retrying the original message link.
 
 The state condition ignores entity restoration and unchanged event timestamps.
 `queued` handles bursts; the example queues at most 100 automation runs. The tag
@@ -124,6 +132,61 @@ lets supported phone apps replace a repeated notification for the same message.
 Recipients, quiet hours, notification delivery and queue limits belong to your
 automation. Running the automation manually without a trigger will not supply
 the message attributes used by these templates.
+
+## Read the latest message in HA
+
+Add this manual card to your dashboard and replace the example entity IDs with
+the actual ones from your integration. The button in Polish is named
+**Przeczytaj najnowszą wiadomość**. The card displays a preview until you press it.
+
+```yaml
+type: vertical-stack
+cards:
+  - type: markdown
+    title: Latest Librus message
+    entity_id: sensor.librus_latest_message
+    content: |-
+      {% set latest = 'sensor.librus_latest_message' %}
+      {% if states(latest) == 'unavailable' %}
+      Could not refresh messages. Try refreshing the inbox.
+      {% elif not state_attr(latest, 'message_id') %}
+      No messages to display.
+      {% else %}
+      **{{ state_attr(latest, 'subject') | e }}**
+
+      From: {{ state_attr(latest, 'sender') | e }}
+
+      {% set body = state_attr(latest, 'body') %}
+      {% if body is not none %}
+      <pre style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ body | e }}</pre>
+      {% else %}
+      {% set preview = state_attr(latest, 'preview') | default('', true) | trim %}
+      {{ (preview.rstrip('.…') ~ '...') | e if preview else '' }}
+
+      Fetching full content marks this message as read in Librus Synergia.
+      {% endif %}
+
+      **Status:** {{ 'Read' if state_attr(latest, 'read') else 'Unread' }}
+
+      [Open the inbox in Librus](https://wiadomosci.librus.pl/nowy/inbox)
+      {% endif %}
+  - type: entities
+    entities:
+      - entity: button.librus_read_latest_message
+      - entity: sensor.librus_unread_messages
+      - entity: button.librus_refresh
+```
+
+Opening this card, receiving a notification or pressing Refresh never reads a
+message. Pressing Read latest message is the explicit request to fetch it; don't
+add that button to an automatic notification or polling action. The unread count
+is refreshed from Librus afterwards, not decremented locally. Other unread
+messages remain unread and can be opened in Librus.
+
+Only the latest message's body is cached, in memory. Repeated presses reuse it.
+The body is cleared when the latest message changes, the integration reloads or
+HA restarts. If a detail request fails, Librus may already have marked the
+message read; a later inbox refresh reports the actual status.
 
 ## Reliability and privacy
 
@@ -150,6 +213,9 @@ the message attributes used by these templates.
 - Sender, subject, preview and other message payload attributes are excluded from
   Recorder history. They remain available to live automations. HA event restoration,
   automation traces and notifications may still retain payloads.
+- Full content is also excluded from Recorder history and is not written to the
+  integration's Store or new-message events. It is visible in the latest sensor's
+  live attributes after reading; automations or other consumers can copy it.
 
 Only the new `wiadomosci.librus.pl` inbox is supported. Interactive MFA/CAPTCHA,
 legacy message pages, archives, other school modules, attachment downloads and

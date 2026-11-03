@@ -1,13 +1,15 @@
 """Actual HA entities, config entry lifecycle, storage and event detection."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 
-from custom_components.librus_messages.api import ApiError, Inbox, RateLimited
+from custom_components.librus_messages.api import ApiError, AuthError, Inbox, RateLimited
 from custom_components.librus_messages.const import DOMAIN
 from custom_components.librus_messages.coordinator import TrackingError
 
@@ -58,6 +60,7 @@ async def test_first_baseline_entities_and_burst(hass, entry, client, hass_stora
     await hass.async_block_till_done()
     assert len(events) == count
     assert hass.states.get("sensor.librus_latest_message").attributes["message_id"] == "3"
+    client.read_message.assert_not_called()
 
 
 async def test_reload_dedup_and_catchup_before_start(hass, entry, client, hass_storage):
@@ -149,6 +152,128 @@ async def test_refresh_button_and_removal(hass, entry, client, hass_storage):
     await hass.config_entries.async_remove(entry.entry_id)
     assert f"{DOMAIN}.{entry.entry_id}" not in hass_storage
     client.session.detach.assert_called()
+    client.read_message.assert_not_called()
+
+
+@pytest.mark.parametrize("already_read", [False, True])
+async def test_read_button_only_reads_latest_and_uses_reported_unread_count(
+    hass, entry, client, hass_storage, already_read
+):
+    client.fetch_inbox.return_value = Inbox(
+        (message(2, read=already_read), message(1)), 1 if already_read else 2
+    )
+    coordinator = await setup(hass, entry)
+    client.read_message.assert_not_called()
+    client.fetch_inbox.return_value = Inbox((message(2, read=True), message(1)), 1)
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.librus_read_latest_message"}, blocking=True
+    )
+    client.read_message.assert_awaited_once_with("2")
+    latest = hass.states.get("sensor.librus_latest_message")
+    assert latest.attributes["body"] == "Pełna treść\nDrugi wiersz"
+    assert latest.attributes["read"] is True
+    assert hass.states.get("sensor.librus_unread_messages").state == "1"
+    assert hass.states.get("event.librus_new_message").state == "unknown"
+    assert "body" not in hass.states.get("event.librus_new_message").attributes
+    assert "body" in latest.state_info["unrecorded_attributes"]
+    assert set(hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]) == {"seen_ids", "last_sync"}
+    await coordinator.async_read_latest_message()
+    client.read_message.assert_awaited_once()
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert "body" not in hass.states.get("sensor.librus_latest_message").attributes
+    client.read_message.assert_awaited_once()
+
+
+async def test_body_is_discarded_when_latest_changes_and_is_not_reused_for_older_message(
+    hass, entry, client
+):
+    coordinator = await setup(hass, entry)
+    await coordinator.async_read_latest_message()
+    for inbox in (Inbox((message(2), message(1)), 2), Inbox((message(1),), 1), Inbox((), 0)):
+        client.fetch_inbox.return_value = inbox
+        await coordinator.async_refresh()
+        assert "body" not in hass.states.get("sensor.librus_latest_message").attributes
+        assert coordinator.body is None
+    assert hass.states.get("button.librus_read_latest_message").state == "unavailable"
+    client.read_message.assert_awaited_once_with("1")
+
+
+async def test_concurrent_press_reads_once_and_new_message_never_gets_old_body(hass, entry, client):
+    coordinator = await setup(hass, entry)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def read(_):
+        entered.set()
+        await release.wait()
+        return "Body of message one"
+
+    client.read_message.side_effect = read
+    with patch.object(coordinator, "async_request_refresh", new_callable=AsyncMock):
+        first = asyncio.create_task(coordinator.async_read_latest_message())
+        await entered.wait()
+        second = asyncio.create_task(coordinator.async_read_latest_message())
+        release.set()
+        await asyncio.gather(first, second)
+    client.read_message.assert_awaited_once_with("1")
+    client.fetch_inbox.return_value = Inbox((message(2), message(1)), 1)
+    await coordinator.async_refresh()
+    latest = hass.states.get("sensor.librus_latest_message")
+    assert latest.attributes["message_id"] == "2"
+    assert "body" not in latest.attributes
+
+
+async def test_read_error_does_not_invent_a_body_or_change_unread_count(hass, entry, client):
+    coordinator = await setup(hass, entry)
+    client.read_message.side_effect = ApiError("invalid_message_body")
+    with pytest.raises(HomeAssistantError) as caught:
+        await coordinator.async_read_latest_message()
+    assert caught.value.translation_key == "read_failed"
+    assert "body" not in hass.states.get("sensor.librus_latest_message").attributes
+    assert hass.states.get("sensor.librus_unread_messages").state == "1"
+    assert coordinator.body is None
+
+
+async def test_read_rate_limit_blocks_repeated_reads_and_polls(hass, entry, client):
+    coordinator = await setup(hass, entry)
+    client.read_message.side_effect = RateLimited(300)
+    for _ in range(2):
+        with pytest.raises(HomeAssistantError) as caught:
+            await coordinator.async_read_latest_message()
+        assert caught.value.translation_key == "read_rate_limited"
+    client.read_message.assert_awaited_once()
+    calls = client.fetch_inbox.call_count
+    await coordinator.async_refresh()
+    assert client.fetch_inbox.call_count == calls
+
+
+async def test_read_auth_failure_starts_reauth(hass, entry, client):
+    coordinator = await setup(hass, entry)
+    client.read_message.side_effect = AuthError("invalid_auth")
+    with patch.object(type(entry), "async_start_reauth") as reauth:
+        with pytest.raises(HomeAssistantError) as caught:
+            await coordinator.async_read_latest_message()
+        assert caught.value.translation_key == "read_auth_failed"
+        reauth.assert_called_once_with(hass)
+
+
+async def test_failed_refresh_disables_read_button_and_hides_cached_body(hass, entry, client):
+    coordinator = await setup(hass, entry)
+    await coordinator.async_read_latest_message()
+    client.fetch_inbox.side_effect = ApiError("connection_failed")
+    await coordinator.async_refresh()
+    assert "body" not in hass.states.get("sensor.librus_latest_message").attributes
+    assert hass.states.get("button.librus_read_latest_message").state == "unavailable"
+    with pytest.raises(ServiceValidationError):
+        await coordinator.async_read_latest_message()
+    client.read_message.assert_awaited_once()
+
+
+async def test_polish_read_button_id_matches_dashboard_example(hass, entry, client):
+    hass.config.language = "pl"
+    await setup(hass, entry)
+    assert hass.states.get("button.librus_przeczytaj_najnowsza_wiadomosc") is not None
 
 
 async def test_restart_while_offline_retains_last_sync(hass, entry, client):
@@ -251,7 +376,10 @@ async def test_readme_automation_delivers_bursts_without_reload_replay(hass, ent
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert [call["title"] for call in delivered] == ["Example subject 2", "Example subject 3"]
-    assert delivered[0]["data"]["url"].endswith("/2")
+    assert delivered[0]["data"]["url"] == "/lovelace/0"
+    assert delivered[0]["data"]["actions"][1]["uri"].endswith("/2")
+    assert delivered[0]["message"].endswith("...")
+    client.read_message.assert_not_called()
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert len(delivered) == 2

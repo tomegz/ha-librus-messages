@@ -16,6 +16,7 @@ from custom_components.librus_messages.api import (
     AuthError,
     LibrusClient,
     RateLimited,
+    parse_body,
     parse_message,
     validate_url,
 )
@@ -44,6 +45,37 @@ def row(number=1, **overrides):
         "readDate": None,
         **overrides,
     }
+
+
+def detail(xml="<Message><Content><![CDATA[Pełna treść\nDrugi wiersz]]></Content></Message>"):
+    return {"messageId": "1", "Message": base64.b64encode(xml.encode()).decode()}
+
+
+def test_decode_full_body_without_interpreting_html():
+    assert parse_body(detail(), "1") == "Pełna treść\nDrugi wiersz"
+    assert parse_body(detail("<Message><Content/></Message>"), "1") == ""
+    markup = '<img src="https://example.invalid/track">'
+    assert (
+        parse_body(detail(f"<Message><Content><![CDATA[{markup}]]></Content></Message>"), "1")
+        == markup
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"messageId": "2", "Message": ""},
+        {"messageId": "1", "Message": "not base64"},
+        detail("<Message><Actions/></Message>"),
+        detail("<Message><Content>unterminated"),
+        detail(
+            '<!DOCTYPE Message [<!ENTITY x "secret">]><Message><Content>&x;</Content></Message>'
+        ),
+    ],
+)
+def test_bad_body_is_rejected_with_safe_error(payload):
+    with pytest.raises(ApiError, match="^invalid_message_body$"):
+        parse_body(payload, "1")
 
 
 def mock_login(mock):
@@ -195,6 +227,52 @@ async def test_full_content_endpoint_is_forbidden():
             with pytest.raises(ApiError, match="unsupported_endpoint"):
                 await api._api("/inbox/messages/123")
             request.assert_not_called()
+
+
+@pytest.mark.parametrize("expired", [False, True])
+async def test_explicit_read_fetches_only_requested_body_and_recovers_session(expired):
+    async with aiohttp.ClientSession() as session:
+        api = LibrusClient(session, "example-login", "example-password")
+        api._authenticated = True
+        with aioresponses() as mock:
+            url = MESSAGES + "/api/inbox/messages/1"
+            if expired:
+                mock.get(url, status=401)
+                mock_handoff(mock)
+            mock.get(url, payload={"data": detail()})
+            assert await api.read_message("1") == "Pełna treść\nDrugi wiersz"
+            details = [
+                (str(url), calls)
+                for (_, url), calls in mock.requests.items()
+                if "/messages/" in str(url)
+            ]
+            assert len(details) == 1
+            assert details[0][0] == url
+            assert len(details[0][1]) == (2 if expired else 1)
+
+
+@pytest.mark.parametrize("message_id", ["", "../me", "1?x=2", "1/2", 1])
+async def test_bad_read_id_never_reaches_network(message_id):
+    async with aiohttp.ClientSession() as session:
+        api = LibrusClient(session, "example-login", "example-password")
+        with patch.object(api, "_request", new_callable=AsyncMock) as request:
+            with pytest.raises(ApiError, match="invalid_message_id"):
+                await api.read_message(message_id)
+            request.assert_not_called()
+
+
+async def test_read_connection_failure_is_not_retried_or_exposed():
+    async with aiohttp.ClientSession() as session:
+        api = LibrusClient(session, "example-login", "example-password")
+        api._authenticated = True
+        with aioresponses() as mock:
+            mock.get(
+                MESSAGES + "/api/inbox/messages/1",
+                exception=aiohttp.ClientConnectionError("private body"),
+            )
+            with pytest.raises(ApiError, match="^connection_failed$"):
+                await api.read_message("1")
+            assert sum(len(calls) for calls in mock.requests.values()) == 1
 
 
 async def test_connection_errors_are_redacted():

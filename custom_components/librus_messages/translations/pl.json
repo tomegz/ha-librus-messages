@@ -76,6 +76,9 @@
     "button": {
       "refresh": {
         "name": "Odśwież"
+      },
+      "read_latest_message": {
+        "name": "Przeczytaj najnowszą wiadomość"
       }
     }
   },
@@ -83,6 +86,20 @@
     "tracking_reset": {
       "title": "Zresetowano śledzenie wiadomości Librus",
       "description": "Zapisana historia wiadomości zniknęła lub była uszkodzona. Automatycznie zapisano nowy stan początkowy. Wiadomości obecne w skrzynce podczas resetu nie wywołały zdarzeń. Kolejne wiadomości będą wykrywane normalnie. Nie musisz nic robić."
+    }
+  },
+  "exceptions": {
+    "no_latest_message": {
+      "message": "Brak aktualnej wiadomości do odczytania. Odśwież skrzynkę i spróbuj ponownie."
+    },
+    "read_rate_limited": {
+      "message": "Librus ograniczył liczbę żądań. Poczekaj przed kolejną próbą."
+    },
+    "read_auth_failed": {
+      "message": "Zaloguj się ponownie do Librus Synergia w ustawieniach integracji."
+    },
+    "read_failed": {
+      "message": "Nie udało się pobrać treści. Wiadomość mogła już zostać oznaczona jako przeczytana w Librus Synergia."
     }
   }
 }

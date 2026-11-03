@@ -1,4 +1,4 @@
-"""Small asynchronous client for inbox metadata, with no detail endpoint."""
+"""Inbox metadata client with a separate, explicit message-reading operation."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ import base64
 import binascii
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin, urlsplit
+from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -134,6 +136,27 @@ def parse_message(row: Any) -> Message:
         raise ApiError("invalid_message_metadata") from None
 
 
+def parse_body(row: Any, message_id: str) -> str:
+    """Decode the detail payload without interpreting message text as HTML."""
+    try:
+        if row["messageId"] != message_id:
+            raise ValueError
+        encoded = row["Message"]
+        if not isinstance(encoded, str) or len(encoded) > 1_000_000:
+            raise ValueError
+        xml = base64.b64decode(encoded, validate=True).decode("utf-8")
+        # This format needs neither DTDs nor entities. Reject both before parsing.
+        if "<!DOCTYPE" in xml or "<!ENTITY" in xml:
+            raise ValueError
+        root = ElementTree.fromstring(xml)
+        content = root.find("Content")
+        if root.tag != "Message" or content is None:
+            raise ValueError
+        return "".join(content.itertext())
+    except KeyError, TypeError, ValueError, binascii.Error, ElementTree.ParseError:
+        raise ApiError("invalid_message_body") from None
+
+
 @dataclass(repr=False)
 class Response:
     status: int
@@ -247,9 +270,12 @@ class LibrusClient:
             raise AuthError("interactive_login_required") from None
         self._authenticated = True
 
-    async def _api(self, path: str, *, wrapped: bool = True, **params: int) -> dict[str, Any]:
-        # Whitelist metadata endpoints: a detail request cannot pass this guard.
-        if path not in ("/me", "/inbox/messages", "/inbox/unreadMessagesCount"):
+    async def _api(
+        self, path: str, *, wrapped: bool = True, allow_read: bool = False, **params: int
+    ) -> dict[str, Any]:
+        # Polling cannot access details. Only read_message explicitly opts in.
+        detail = allow_read and re.fullmatch(r"/inbox/messages/[0-9]{1,30}", path)
+        if path not in ("/me", "/inbox/messages", "/inbox/unreadMessagesCount") and not detail:
             raise ApiError("unsupported_endpoint")
         response = await self._request("GET", MESSAGES + "/api" + path, params=params)
         if response.status == 401 or response.status in (301, 302, 303, 307, 308):
@@ -296,11 +322,26 @@ class LibrusClient:
 
     async def fetch_inbox(self) -> Inbox:
         """Fetch a complete result, renewing a rejected session at most once."""
+        return await self._with_session(self._fetch)
+
+    async def read_message(self, message_id: str) -> str:
+        """Fetch full content on demand. Librus marks the message as read."""
+        if not isinstance(message_id, str) or not re.fullmatch(r"[0-9]{1,30}", message_id):
+            raise ApiError("invalid_message_id")
+
+        async def read() -> str:
+            payload = await self._api(f"/inbox/messages/{message_id}", allow_read=True)
+            return parse_body(payload["data"], message_id)
+
+        return await self._with_session(read)
+
+    async def _with_session[T](self, operation: Callable[[], Awaitable[T]]) -> T:
+        """Serialize operations and retry only after an explicit session rejection."""
         async with self._lock:
             if not self._authenticated:
                 await self._login()
             try:
-                return await self._fetch()
+                return await operation()
             except SessionExpired:
                 self._authenticated = False
                 try:
@@ -309,7 +350,7 @@ class LibrusClient:
                     await self._login()
                 self._authenticated = True
                 try:
-                    return await self._fetch()
+                    return await operation()
                 except SessionExpired:
                     self._authenticated = False
                     raise ApiError("session_renewal_failed") from None
