@@ -194,6 +194,10 @@ class LibrusClient:
 
     async def _handoff(self) -> None:
         bridge = await self._request("GET", SYNERGIA + "/wiadomosci3")
+        # An expired Synergia session can return its login page with HTTP 200
+        # instead of redirecting. An authenticated handoff always returns 302.
+        if bridge.status == 200:
+            raise SessionExpired("synergia_session_expired")
         if bridge.status in (401, 302) and not bridge.location.startswith(MESSAGES + "/"):
             raise SessionExpired("synergia_session_expired")
         if bridge.status != 302:

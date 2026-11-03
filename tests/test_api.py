@@ -129,16 +129,26 @@ async def test_messages_cookie_recovery_does_not_repeat_password_login():
             assert all(method == "GET" for method, _ in mock.requests)
 
 
-async def test_complete_session_loss_repeats_login_once():
+@pytest.mark.parametrize("handoff_status", [200, 302, 401])
+async def test_complete_session_loss_repeats_login_once(handoff_status):
     async with aiohttp.ClientSession() as session:
         api = LibrusClient(session, "example-login", "example-password")
         api._authenticated = True
         with aioresponses() as mock:
             mock.get(MESSAGES + "/api/inbox/messages?page=1&limit=10", status=401)
-            mock.get(SYNERGIA + "/wiadomosci3", status=302, headers={"Location": AUTH + "/form"})
+            mock.get(
+                SYNERGIA + "/wiadomosci3",
+                status=handoff_status,
+                headers={"Location": AUTH + "/form"} if handoff_status == 302 else {},
+                body="<html>Sign in</html>" if handoff_status == 200 else "",
+            )
             mock_login(mock)
             mock_inbox(mock)
             assert (await api.fetch_inbox()).unread == 1
+            assert (
+                sum(len(calls) for (method, _), calls in mock.requests.items() if method == "POST")
+                == 1
+            )
 
 
 async def test_pagination_includes_all_rows():
