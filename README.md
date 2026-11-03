@@ -14,6 +14,21 @@ affiliated with Librus or Home Assistant.
 
 ## Install through HACS
 
+**1. Download with HACS.** With HACS already installed, open this repository using
+the button below and choose **Download**.
+
+[![Open Librus Messages in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tomegz&repository=ha-librus-messages&category=integration)
+
+**2. Restart Home Assistant, then add the integration.** This button opens the
+Librus Messages setup form, where you enter your Synergia login and password.
+
+[![Add Librus Messages to Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=librus_messages)
+
+The buttons use My Home Assistant and may ask for your Home Assistant address.
+The setup button requires the integration to be downloaded and HA restarted first.
+
+Alternatively, follow these steps manually:
+
 1. Open **HACS → ⋮ → Custom repositories**.
 2. Add `https://github.com/tomegz/ha-librus-messages`, type **Integration**.
 3. Find **Librus Messages** in HACS and download it.
