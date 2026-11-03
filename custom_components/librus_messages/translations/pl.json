@@ -3,8 +3,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Połącz wiadomości Librus",
-        "description": "Użyj loginu Synergia dla wiadomosci.librus.pl. Nie trzeba kopiować ciasteczek. Wiadomości historyczne nie wywołają powiadomień.",
+        "title": "Połącz moduł wiadomości Librus",
+        "description": "Użyj loginu Librus Synergia",
         "data": {
           "name": "Nazwa konta",
           "username": "Login Synergia",
@@ -12,15 +12,15 @@
         }
       },
       "reauth_confirm": {
-        "title": "Zaloguj się ponownie do Librusa",
-        "description": "Wpisz hasło do tego konta. Historia przetworzonych wiadomości zostanie zachowana.",
+        "title": "Zaloguj się ponownie do Librus Synergia",
+        "description": "Wpisz hasło do tego konta.",
         "data": {
           "password": "Hasło"
         }
       },
       "reconfigure": {
-        "title": "Zmień hasło Librusa",
-        "description": "Zmień hasło bez resetowania historii przetworzonych wiadomości.",
+        "title": "Uaktualnij hasło Librus Synergia",
+        "description": "Uaktualnij hasło zapisane w tej integracji.",
         "data": {
           "password": "Hasło"
         }
