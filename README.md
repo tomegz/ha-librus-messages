@@ -158,7 +158,7 @@ cards:
 
       {% set body = state_attr(latest, 'body') %}
       {% if body is not none %}
-      <pre style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ body | e }}</pre>
+      <p>{{ body | replace('\r\n', '\n') | replace('\r', '\n') | e | replace('\n', '<br>') }}</p>
       {% else %}
       {% set preview = state_attr(latest, 'preview') | default('', true) | trim %}
       {{ (preview.rstrip('.…') ~ '...') | e if preview else '' }}
@@ -187,6 +187,11 @@ Only the latest message's body is cached, in memory. Repeated presses reuse it.
 The body is cleared when the latest message changes, the integration reloads or
 HA restarts. If a detail request fails, Librus may already have marked the
 message read; a later inbox refresh reports the actual status.
+
+The card displays the message as ordinary wrapping text, preserves line breaks,
+and treats any HTML or Markdown in the message as text. Existing dashboards need
+the card template updated separately; updating the integration does not change
+your dashboard.
 
 ## Reliability and privacy
 
