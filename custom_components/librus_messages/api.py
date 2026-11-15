@@ -137,18 +137,23 @@ def parse_message(row: Any) -> Message:
 
 
 def parse_body(row: Any, message_id: str) -> str:
-    """Decode the detail payload without interpreting message text as HTML."""
+    """Decode plain-text or XML-wrapped bodies without interpreting HTML."""
     try:
         if row["messageId"] != message_id:
             raise ValueError
         encoded = row["Message"]
         if not isinstance(encoded, str) or len(encoded) > 1_000_000:
             raise ValueError
-        xml = base64.b64decode(encoded, validate=True).decode("utf-8")
+        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
         # This format needs neither DTDs nor entities. Reject both before parsing.
-        if "<!DOCTYPE" in xml or "<!ENTITY" in xml:
+        if "<!DOCTYPE" in decoded or "<!ENTITY" in decoded:
             raise ValueError
-        root = ElementTree.fromstring(xml)
+        # Librus also sends base64-encoded plain text without an XML envelope.
+        # Keep markup-looking payloads on the strict XML path so a malformed
+        # envelope is not mistaken for successfully decoded message content.
+        if not decoded.lstrip("\ufeff \t\r\n").startswith("<"):
+            return decoded
+        root = ElementTree.fromstring(decoded)
         content = root.find("Content")
         if root.tag != "Message" or content is None:
             raise ValueError

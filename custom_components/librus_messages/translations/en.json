@@ -99,7 +99,7 @@
       "message": "Sign in to Librus Synergia again in the integration settings."
     },
     "read_failed": {
-      "message": "Could not fetch the content. The message may already have been marked as read in Librus Synergia."
+      "message": "Could not download or decode the message content. Try again. This attempt may have marked the message as read in Librus Synergia."
     }
   }
 }

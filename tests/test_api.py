@@ -62,10 +62,32 @@ def test_decode_full_body_without_interpreting_html():
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        "Drodzy Rodzice,\n\nPrzykładowa informacja.\nZażółć gęślą jaźń!",
+        "  Pierwszy wiersz\r\nDrugi wiersz\rTrzeci wiersz\n",
+        "Tekst z <b>dosłownym znacznikiem</b> i **Markdown**.",
+        "",
+    ],
+)
+def test_decode_plain_text_body(text):
+    assert parse_body(detail(text), "1") == text
+
+
+def test_decode_xml_body_with_utf8_bom():
+    assert (
+        parse_body(detail("\ufeff<Message><Content>Przykład</Content></Message>"), "1")
+        == "Przykład"
+    )
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         {"messageId": "2", "Message": ""},
         {"messageId": "1", "Message": "not base64"},
+        {"messageId": "1", "Message": base64.b64encode(b"\xff").decode()},
+        detail("<Unexpected>text</Unexpected>"),
         detail("<Message><Actions/></Message>"),
         detail("<Message><Content>unterminated"),
         detail(
@@ -230,7 +252,16 @@ async def test_full_content_endpoint_is_forbidden():
 
 
 @pytest.mark.parametrize("expired", [False, True])
-async def test_explicit_read_fetches_only_requested_body_and_recovers_session(expired):
+@pytest.mark.parametrize(
+    "encoded_body",
+    [
+        "<Message><Content><![CDATA[Pełna treść\nDrugi wiersz]]></Content></Message>",
+        "Pełna treść\nDrugi wiersz",
+    ],
+)
+async def test_explicit_read_fetches_only_requested_body_and_recovers_session(
+    expired, encoded_body
+):
     async with aiohttp.ClientSession() as session:
         api = LibrusClient(session, "example-login", "example-password")
         api._authenticated = True
@@ -239,7 +270,7 @@ async def test_explicit_read_fetches_only_requested_body_and_recovers_session(ex
             if expired:
                 mock.get(url, status=401)
                 mock_handoff(mock)
-            mock.get(url, payload={"data": detail()})
+            mock.get(url, payload={"data": detail(encoded_body)})
             assert await api.read_message("1") == "Pełna treść\nDrugi wiersz"
             details = [
                 (str(url), calls)

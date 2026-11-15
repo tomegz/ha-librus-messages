@@ -99,7 +99,7 @@
       "message": "Zaloguj się ponownie do Librus Synergia w ustawieniach integracji."
     },
     "read_failed": {
-      "message": "Nie udało się pobrać treści. Wiadomość mogła już zostać oznaczona jako przeczytana w Librus Synergia."
+      "message": "Nie udało się pobrać lub odczytać treści wiadomości. Spróbuj ponownie. Ta próba mogła oznaczyć wiadomość jako przeczytaną w Librus Synergia."
     }
   }
 }
